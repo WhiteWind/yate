@@ -39,6 +39,8 @@ $chans = array();
 // list of active presence subscriptions
 $pres = array();
 
+$db_account = 'default';
+
 // Abstract subscription object
 class Subscription {
     var $match;
@@ -69,14 +71,14 @@ class Subscription {
 	// allow the mailbox to be referred as vm-NUMBER (or anything-NUMBER)
 	ereg(":([a-z]*-)?([^:@]+)@",$this->uri,$regs);
 	$this->match = $regs[2];
-	$this->index = $event .":". $this->match .":". $this->host .":". $this->port;
+	$this->contact = $ev->params["sip_contact"];
+	$this->index = $event .":". $this->match .":". preg_replace('/^[^<]*<([^>]+)>/', '$1', $this->contact);
 	Yate::Debug("Will match: " . $this->match . " index " . $this->index);
 	$this->from = $ev->GetValue("sip_from");
 	$this->to = $ev->GetValue("sip_to");
 	if (strpos($this->to,'tag=') === false)
 	    $this->to .= ';tag=' . $ev->GetValue("xsip_dlgtag");
 	$this->callid = $ev->params["sip_callid"];
-	$this->contact = $ev->params["sip_contact"];
 	$this->connid = $ev->params["connection_id"];
 	$exp = $ev->params["sip_expires"];
 	if ($exp == "0") {
@@ -148,7 +150,7 @@ class Subscription {
     function Expire()
     {
 	if ($this->expire == 0)
-	    return false;
+	    return true;
 	if ($this->expire >= time())
 	    return false;
 	Yate::Debug("Expired event " . $this->event . " for " . $this->match);
@@ -333,17 +335,17 @@ function onSubscribe($ev)
     global $pres;
     $event = $ev->GetValue("sip_event");
     $accept = $ev->GetValue("sip_accept");
-    if (($event == "message-summary") && ($accept == "application/simple-message-summary" || $accept == "")) {
+    if (($event == "message-summary") && (strpos($accept, "application/simple-message-summary") !== FALSE || $accept == "")) {
 	$s = new MailSub($ev);
 	$s->AddTo($users);
 	Yate::Debug("New mail subscription for " . $s->match);
     }
-    else if (($event == "dialog") && ($accept == "application/dialog-info+xml" || $accept == "")) {
+    else if (($event == "dialog") && (strpos($accept, "application/dialog-info+xml") !== FALSE || $accept == "")) {
 	$s = new DialogSub($ev);
 	$s->AddTo($chans);
 	Yate::Debug("New dialog subscription for " . $s->match);
     }
-    else if (($event == "presence") && ($accept == "application/pidf+xml" || $accept == "")) {
+    else if (($event == "presence") && (strpos($accept, "application/pidf+xml") !== FALSE || $accept == "")) {
 	$s = new PresenceSub($ev);
 	$s->AddTo($pres);
 	Yate::Debug("New presence subscription for " . $s->match);
@@ -364,7 +366,20 @@ function onSubscribe($ev)
 function onPublish($ev)
 {
     global $pres;
+    global $db_account;
     updateAll($pres,$ev->GetValue("caller"),$ev);
+    
+    $username = mysql_escape_string($ev->params['username']);
+    $status = 'online';
+    if (isset($ev->params['sip_expires']) && $ev->params['sip_expires'] == 0)
+	$status = 'offline';
+    elseif (preg_match('/im>\s*([^<]*)\s*</', $ev->params['xsip_body'], $matches))
+      $status = mysql_escape_string($matches[1]);
+    $m = new Yate("database");
+    $m->params['account'] = $db_account;
+    $m->params['query'] = "UPDATE users SET status = '$status' WHERE username = '$username'";
+    $m->params['results'] = false;
+    $m->dispatch();
     return true;
 }
 
@@ -400,11 +415,11 @@ function onTimer($t)
 	return;
     // Next check in 15 seconds
     $next = $t + 15;
-    // Yate::Debug("Expiring aged subscriptions at $t");
+    Yate::Debug("Expiring aged subscriptions at $t");
     expireAll($users);
     expireAll($chans);
     expireAll($pres);
-    // Yate::Debug("Flushing pending subscriptions at $t");
+    Yate::Debug("Flushing pending subscriptions at $t");
     flushAll($users);
     flushAll($chans);
     flushAll($pres);
@@ -492,13 +507,13 @@ for (;;) {
 		$ev->Acknowledge();
 	    break;
 	case "answer":
-	    // Yate::Debug("PHP Answered: " . $ev->name . " id: " . $ev->id);
+	    Yate::Debug("PHP Answered: " . $ev->name . " id: " . $ev->id);
 	    break;
 	case "installed":
-	    // Yate::Debug("PHP Installed: " . $ev->name);
+	    Yate::Debug("PHP Installed: " . $ev->name);
 	    break;
 	case "uninstalled":
-	    // Yate::Debug("PHP Uninstalled: " . $ev->name);
+	    Yate::Debug("PHP Uninstalled: " . $ev->name);
 	    break;
 	default:
 	    Yate::Output("PHP Event: " . $ev->type);

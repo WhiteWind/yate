@@ -33,6 +33,8 @@ require_once("libyate.php");
 $ourcallid = "q-out/" . uniqid(rand(),1);
 $partycallid = "";
 $caller = "";
+$called = "";
+$billid = "";
 $prompt = "";
 $queue = "";
 
@@ -65,6 +67,8 @@ for (;;) {
 		case "call.execute":
 		    $partycallid = $ev->GetValue("notify");
 		    $caller = $ev->GetValue("caller");
+		    $called = $ev->GetValue("called");
+		    $billid = $ev->GetValue("billid");
 		    $prompt = $ev->GetValue("prompt");
 		    $queue = $ev->GetValue("queue");
 		    $ev->handled=true;
@@ -73,7 +77,6 @@ for (;;) {
 		    $m = new Yate("call.execute");
 		    $m->params["id"] = $ourcallid;
 		    $m->params["caller"] = $caller;
-		    $m->params["called"] = $ev->GetValue("called");
 		    $direct = $ev->GetValue("direct");
 		    if ($direct[0] == '{') {
 			foreach(json_decode($json) as $k => $v)
@@ -81,7 +84,8 @@ for (;;) {
 		    } else {
 			$m->params["callto"] = $direct;
 		    }
-		    $m->params["billid"] = $ev->GetValue("billid");
+		    $m->params["called"] = $called;
+		    $m->params["billid"] = $billid;
 		    $m->params["maxcall"] = $ev->GetValue("maxcall");
 		    $m->params["cdrtrack"] = "false";
 		    $m->Dispatch();
@@ -89,6 +93,7 @@ for (;;) {
 		    $m = new Yate("chan.locate");
 		    $m->params["id"] = $partycallid;
 		    $m->Dispatch();
+		    
 		    break;
 		case "call.answered":
 		    if ($ev->GetValue("id") == $partycallid) {
@@ -106,8 +111,23 @@ for (;;) {
 		    $m->id = "";
 		    $m->params["id"] = $ev->GetValue("id");
 		    $m->params["targetid"] = $partycallid;
-		    $ev = false;
 		    $m->Dispatch();
+		    
+		    $m = new Yate("chan.masquerade");
+		    $m->params["message"] = "chan.operation";
+		    $m->params["operation"] = "conference";
+		    $m->params["room"] = "conf/r-".str_replace('/', '-', $partycallid);
+		    $m->params["complete_minimal"] = true;
+		    $m->params["id"] = $partycallid;
+		    $m->params["caller"] = $caller;
+		    $m->params["called"] = $called;
+		    $m->params["billid"] = $billid;
+		    $m->params["lonely"] = true;
+		    $m->params["record"] = "external/nodata/conf_record.php";
+		    $m->params["notify"] = "confrec/r-".str_replace('/', '-', $partycallid);
+		    $m->params["copyparams"] = "notify,record,caller,called,billid,lonely";
+		    $m->Dispatch();
+		    $ev = false;
 		    break;
 		case "chan.disconnected":
 		    // operator hung up or did not answer
