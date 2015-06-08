@@ -31,6 +31,7 @@
 #include <stddef.h>
 #include <unistd.h>
 #include <errno.h>
+#include <stdarg.h>
 
 #ifndef _WORDSIZE
 #if defined(__arch64__) || defined(__x86_64__) \
@@ -620,11 +621,23 @@ public:
     static void setAlarmHook(void (*alarmFunc)(const char*,int,const char*,const char*) = 0);
 
     /**
+     * Set the relay hook callback that will process all Output, Debug and Alarm
+     * @param relayFunc Pointer to the relay callback function, NULL to disable
+     */
+    static void setRelayHook(void (*relayFunc)(int,const char*,const char*,const char*) = 0);
+
+    /**
      * Enable or disable the debug output
      * @param enable Set to true to globally enable output
      * @param colorize Enable ANSI colorization of output
      */
     static void enableOutput(bool enable = true, bool colorize = false);
+
+    /**
+     * Retrieve the start timestamp
+     * @return Start timestamp value in seconds
+     */
+    static uint32_t getStartTimeSec();
 
     /**
      * Retrieve the format of timestamps
@@ -635,8 +648,9 @@ public:
     /**
      * Set the format of timestamps on output messages and set the time start reference
      * @param format Desired timestamp formatting
+     * @param startTimeSec Optional start timestamp (in seconds)
      */
-    static void setFormatting(Formatting format);
+    static void setFormatting(Formatting format, uint32_t startTimeSec = 0);
 
     /**
      * Fill a buffer with a current timestamp prefix
@@ -645,6 +659,16 @@ public:
      * @return Length of the prefix written in buffer excluding final NUL
      */
     static unsigned int formatTime(char* buf, Formatting format = getFormatting());
+
+    /**
+     * Processes a preformatted string as Output, Debug or Alarm.
+     * This method is intended to relay messages from other processes, DO NOT USE!
+     * @param level The level of the debug or alarm, negative for an output
+     * @param buffer Preformatted text buffer, MUST HAVE SPACE for at least strlen + 2
+     * @param component Component that emits the alarm if applicable
+     * @param info Extra alarm information if applicable
+     */
+    static void relayOutput(int level, char* buffer, const char* component = 0, const char* info = 0);
 
 private:
     const char* m_name;
@@ -1799,6 +1823,12 @@ private:
 class YATE_API String : public GenObject
 {
 public:
+    enum Align {
+	Left = 0,
+	Center,
+	Right
+    };
+
     /**
      * Creates a new, empty string.
      */
@@ -1847,6 +1877,12 @@ public:
      * @param value Value to convert to string
      */
     explicit String(bool value);
+
+    /**
+     * Creates a new initialized string from a double value.
+     * @param value Value to convert to string
+     */
+    explicit String(double value);
 
     /**
      * Copy constructor.
@@ -2233,6 +2269,12 @@ public:
 	{ return operator=(boolText(value)); }
 
     /**
+     * Assignment operator for double.
+     * @param value Value to assign to the string
+     */
+    String& operator=(double value);
+
+    /**
      * Appending operator for strings.
      * @param value Value to assign to the string
      * @see TelEngine::strcat
@@ -2276,6 +2318,12 @@ public:
      */
     inline String& operator+=(bool value)
 	{ return operator+=(boolText(value)); }
+
+    /**
+     * Appending operator for double.
+     * @param value Value to append to the string
+     */
+    String& operator+=(double value);
 
     /**
      * Equality operator.
@@ -2352,6 +2400,12 @@ public:
 	{ return operator+=(value); }
 
     /**
+     * Stream style appending operator for double
+     */
+    inline String& operator<<(double value)
+	{ return operator+=(value); }
+
+    /**
      * Stream style substring skipping operator.
      * It eats all characters up to and including the skip string
      */
@@ -2421,6 +2475,40 @@ public:
      * @param decimals Number of decimals
      */
     String& append(double value, unsigned int decimals = 3);
+
+    /**
+     * Build a String in a printf style.
+     * @param format The output format.
+     * NOTE: The length of the resulting string will be at most 128 + length of format
+     */
+    String& printf(const char* format, ...) FORMAT_CHECK(2);
+
+    /**
+     * Build a String in a printf style.
+     * @param length maximum length of the resulting string
+     * @param format The output format.
+     */
+    String& printf(unsigned int length, const char* format,  ...) FORMAT_CHECK(3);
+
+    /**
+     * Build a fixed aligned string from str and append it.
+     * @param fixedLength The fixed length in which the 'str' will be aligned.
+     * @param str The string to align
+     * @param len The number of characters to use from str.
+     * @param fill Character to fill the empty space.
+     * @param align The alignment mode.
+     */
+    String& appendFixed(unsigned int fixedLength, const char* str, unsigned int len = -1, char fill = ' ', int align = Left);
+
+    /**
+     * Build a fixed aligned string from str and append it.
+     * @param fixedLength The fixed length in which the 'str' will be aligned.
+     * @param str The string to align
+     * @param fill Character to fill the empty space.
+     * @param align The alignment mode.
+     */
+    inline String& appendFixed(unsigned int fixedLength, const String& str, char fill = ' ', int align = Left)
+	{ return appendFixed(fixedLength,str.c_str(),str.length(),fill,align); }
 
     /**
      * Locate the first instance of a character in the string
@@ -4980,6 +5068,12 @@ public:
      * @param safe True to enable locking safety measures, false to disable
      */
     static void enableSafety(bool safe = true);
+
+    /**
+     * Retrieve safety and sanity check features flag value
+     * @return Locking safety measures flag value
+     */
+    static bool safety();
 };
 
 /**
@@ -5142,8 +5236,10 @@ public:
      * Construct a new unlocked semaphore
      * @param maxcount Maximum unlock count, must be strictly positive
      * @param name Static name of the semaphore (for debugging purpose only)
+     * @param initialCount Initial semaphore count, must not be greater than maxcount
      */
-    explicit Semaphore(unsigned int maxcount = 1, const char* name = 0);
+    explicit Semaphore(unsigned int maxcount = 1, const char* name = 0,
+	unsigned int initialCount = 1);
 
     /**
      * Copy constructor, creates a shared semaphore
