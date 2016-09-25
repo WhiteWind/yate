@@ -277,10 +277,24 @@ class PresenceSub extends Subscription {
 	if ($body != "") {
 	    Yate::Debug("Presence: for " . $this->match);
 	    $this->body = $body;
-	    $this->pending = true;
-	    $this->Flush();
+	    
+	} else if ($ev->GetValue("queue")) {
+	    $this->body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+	    <presence xmlns=\"urn:ietf:params:xml:ns:pidf\" xmlns:im=\"urn:ietf:params:xml:ns:pidf:im\"
+		entity=\"".$ev->GetValue("queue")."\">
+		<tuple id=\"s8794\">
+		    <status>
+			<basic>".($ev->GetValue("event") == "destroyed" ? 'closed':'open')."</basic>
+			<im:im>".$ev->GetValue("event")."</im:im>
+		    </status>
+		    <contact priority=\"0.".$ev->GetValue("position")."\">".$ev->GetValue("caller")."</contact>
+		</tuple>
+	    </presence>";
 	}
+	$this->pending = true;
+	$this->Flush();
     }
+    
 }
 
 // Update all subscriptions in a $list that match a given $key
@@ -289,13 +303,16 @@ function updateAll(&$list,$key,$ev,$id = false)
     if (!$key)
 	return;
     $count = 0;
+    $total = count($list);
     foreach ($list as &$item) {
+	Yate::Debug("Does ".$item->match." match $key ?");
 	if ($item->match == $key) {
+	    Yate::Debug("Yes");
 	    $item->Update($ev,$id);
 	    $count++;
 	}
     }
-    Yate::Debug("Updated $count subscriptions for '$key'");
+    Yate::Debug("Updated $count subscriptions from $total for '$key'");
 }
 
 // Flush all pending notifies for subscriptions in a $list
@@ -375,6 +392,8 @@ function onPublish($ev)
 	$status = 'offline';
     elseif (preg_match('/im>\s*([^<]*)\s*</', $ev->params['xsip_body'], $matches))
       $status = mysql_escape_string($matches[1]);
+    elseif (!$ev->params['xsip_body'])
+	return true;
     $m = new Yate("database");
     $m->params['account'] = $db_account;
     $m->params['query'] = "UPDATE users SET status = '$status' WHERE username = '$username'";
@@ -390,11 +409,10 @@ function onUserUpdate($ev)
     updateAll($users,$ev->GetValue("user"),$ev);
 }
 
-// Channel status (dialog) handler, not currently used
-function onChanUpdate($ev)
+function onChanNotify($ev)
 {
-    global $chans;
-    updateAll($chans,$ev->GetValue("id"),$ev);
+    global $pres;
+    updateAll($pres,$ev->GetValue("queue"),$ev);
 }
 
 // CDR handler for channel status update
@@ -452,7 +470,7 @@ Yate::SetLocal("restart",true);
 Yate::Install("sip.subscribe");
 Yate::Install("sip.publish");
 Yate::Install("user.update");
-Yate::Install("chan.update");
+Yate::Install("chan.notify");
 Yate::Install("call.cdr");
 Yate::Install("engine.timer");
 Yate::Install("engine.command");
@@ -492,9 +510,9 @@ for (;;) {
 		    onUserUpdate($ev);
 		    $ev = false;
 		    break;
-		case "chan.update":
+		case "chan.notify":
 		    $ev->Acknowledge();
-		    onChanUpdate($ev);
+		    onChanNotify($ev);
 		    $ev = false;
 		    break;
 		case "call.cdr":

@@ -42,7 +42,8 @@ $queue = "";
 Yate::Init();
 
 /* Uncomment next line to get debugging messages */
-//Yate::Debug(true);
+Yate::Output(true);
+Yate::Debug(true);
 
 Yate::SetLocal("trackparam","queue_out.php");
 Yate::SetLocal("id",$ourcallid);
@@ -106,40 +107,60 @@ for (;;) {
 			break;
 		    $ev->params["targetid"] = $partycallid;
 		    $ev->Acknowledge();
-		    // connect operator call leg directly to incoming one
-		    $m = new Yate("chan.connect");
-		    $m->id = "";
-		    $m->params["id"] = $ev->GetValue("id");
-		    $m->params["targetid"] = $partycallid;
-		    $m->Dispatch();
 		    
-		    $m = new Yate("chan.masquerade");
+		    Yate::Install("chan.connected",80,"peerid",$ourcallid);
+		    // connect operator call leg directly to incoming one
+		    //$m = new Yate("chan.connect");
+		    //$m->id = "";
+		    //$m->params["id"] = $ev->GetValue("id");
+		    //$m->params["targetid"] = $partycallid;
+		    //$m->Dispatch();
+		
+		    $room = "conf/r-".str_replace('/', '-', $partycallid);
+                    Yate::Debug("PHP Creating conference $room");
+                    // Converting outgoing leg to conference
+                    $m = new Yate("chan.masquerade");
 		    $m->params["message"] = "chan.operation";
 		    $m->params["operation"] = "conference";
-		    $m->params["room"] = "conf/r-".str_replace('/', '-', $partycallid);
-		    $m->params["complete_minimal"] = true;
-		    $m->params["id"] = $partycallid;
+		    $m->params["room"] = $room;
+		    //$m->params["complete_minimal"] = true;
+		    //$m->params["id"] = $partycallid;
+		    $m->params["id"] = $ev->GetValue("id");
 		    $m->params["caller"] = $caller;
 		    $m->params["called"] = $called;
 		    $m->params["billid"] = $billid;
 		    $m->params["lonely"] = true;
 		    $m->params["record"] = "external/nodata/conf_record.php";
-		    $m->params["notify"] = "confrec/r-".str_replace('/', '-', $partycallid);
-		    $m->params["copyparams"] = "notify,record,caller,called,billid,lonely";
+		    $m->params["recordwarn"]= "-";
+		    $m->params["notify"] = "confmgr"; // "confrec/r-".str_replace('/', '-', $partycallid);
+		    $m->params["username"] = $called;
+		    $m->params["copyparams"] = "notify,record,caller,called,billid,lonely,recordwarn,username";
 		    $m->Dispatch();
 		    $ev = false;
 		    break;
 		case "chan.disconnected":
+                    Yate::Debug("PHP Q-OUT disconnected");
 		    // operator hung up or did not answer
 		    if ($ev->GetValue("reason")) {
 			$ev->name = "chan.hangup";
 			$ev->params["notify"] = $partycallid;
 			$ev->params["queue"] = $queue;
 			$ev->params["cdrtrack"] = "false";
-		    }
+		    } 
 		    break;
+                case "chan.connected":
+                    if ($ev->GetValue("peerid") == $ourcallid) {
+                        Yate::Debug("PHP Connecting incoming leg to conference " . $ev->GetValue("address"));
+                        $m = new Yate("chan.connect");
+                        $m->id = "";
+                        $m->params["id"] = $ev->GetValue("id");
+                        $m->params["targetid"] = $partycallid;
+                        $m->Dispatch();
+                    }                    
+                    break;/**/
 		case "chan.hangup":
 		    // caller hung up while in queue
+		    Yate::Debug("PHP Caller hungup, exiting");
 		    exit();
 	    }
 	    /* This is extremely important.
