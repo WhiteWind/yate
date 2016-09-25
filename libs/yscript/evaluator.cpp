@@ -27,6 +27,8 @@
 
 using namespace TelEngine;
 
+#define MAX_SIMPLIFY 16
+
 #define MAKEOP(s,o) { s, ExpEvaluator::Opc ## o }
 #define ASSIGN(s,o) { s "=", ExpEvaluator::Opc ## o | ExpEvaluator::OpcAssign }
 static const TokenDict s_operators_c[] =
@@ -696,10 +698,16 @@ bool ExpEvaluator::trySimplify()
 {
     DDebug(this,DebugInfo,"trySimplify");
     bool done = false;
+    ObjList* opcodes = &m_opcodes;
     for (unsigned int i = 0; ; i++) {
-	ExpOperation* o = static_cast<ExpOperation*>(m_opcodes[i]);
+	while ((i > MAX_SIMPLIFY) && opcodes->next()) {
+	    // limit backtrace depth
+	    opcodes = opcodes->next();
+	    i--;
+	}
+	ExpOperation* o = static_cast<ExpOperation*>(opcodes->at(i));
 	if (!o) {
-	    if (i >= m_opcodes.length())
+	    if (i >= opcodes->length())
 		break;
 	    else
 		continue;
@@ -728,8 +736,8 @@ bool ExpEvaluator::trySimplify()
 	    case OpcLe:
 	    case OpcGe:
 		if (i >= 2) {
-		    ExpOperation* op2 = static_cast<ExpOperation*>(m_opcodes[i-1]);
-		    ExpOperation* op1 = static_cast<ExpOperation*>(m_opcodes[i-2]);
+		    ExpOperation* op2 = static_cast<ExpOperation*>(opcodes->at(i-1));
+		    ExpOperation* op1 = static_cast<ExpOperation*>(opcodes->at(i-2));
 		    if (!op1 || !op2)
 			continue;
 		    if (o->opcode() == OpcLAnd || o->opcode() == OpcAnd || o->opcode() == OpcMul) {
@@ -737,9 +745,9 @@ bool ExpEvaluator::trySimplify()
 			    (op2->opcode() == OpcPush && !op2->number() && op1->opcode() == OpcField)) {
 			    ExpOperation* newOp = (o->opcode() == OpcLAnd) ? new ExpOperation(false) : new ExpOperation((int64_t)0);
 			    newOp->lineNumber(o->lineNumber());
-			    (m_opcodes+i)->set(newOp);
-			    m_opcodes.remove(op1);
-			    m_opcodes.remove(op2);
+			    ((*opcodes)+i)->set(newOp);
+			    opcodes->remove(op1);
+			    opcodes->remove(op2);
 			    i -= 2;
 			    done = true;
 			    continue;
@@ -750,9 +758,9 @@ bool ExpEvaluator::trySimplify()
 			    (op2->opcode() == OpcPush && op2->number() && op1->opcode() == OpcField)) {
 			    ExpOperation* newOp = new ExpOperation(true);
 			    newOp->lineNumber(o->lineNumber());
-			    (m_opcodes+i)->set(newOp);
-			    m_opcodes.remove(op1);
-			    m_opcodes.remove(op2);
+			    ((*opcodes)+i)->set(newOp);
+			    opcodes->remove(op1);
+			    opcodes->remove(op2);
 			    i -= 2;
 			    done = true;
 			    continue;
@@ -766,9 +774,9 @@ bool ExpEvaluator::trySimplify()
 			    // replace operators and operation with computed constant
 			    ExpOperation* newOp = popOne(stack);
 			    newOp->lineNumber(o->lineNumber());
-			    (m_opcodes+i)->set(newOp);
-			    m_opcodes.remove(op1);
-			    m_opcodes.remove(op2);
+			    ((*opcodes)+i)->set(newOp);
+			    opcodes->remove(op1);
+			    opcodes->remove(op2);
 			    i -= 2;
 			    done = true;
 			}
@@ -779,7 +787,7 @@ bool ExpEvaluator::trySimplify()
 	    case OpcNot:
 	    case OpcLNot:
 		if (i >= 1) {
-		    ExpOperation* op = static_cast<ExpOperation*>(m_opcodes[i-1]);
+		    ExpOperation* op = static_cast<ExpOperation*>(opcodes->at(i-1));
 		    if (!op)
 			continue;
 		    if (op->opcode() == OpcPush) {
@@ -789,16 +797,16 @@ bool ExpEvaluator::trySimplify()
 			    // replace unary operator and operation with computed constant
 			    ExpOperation* newOp = popOne(stack);
 			    newOp->lineNumber(o->lineNumber());
-			    (m_opcodes+i)->set(newOp);
-			    m_opcodes.remove(op);
+			    ((*opcodes)+i)->set(newOp);
+			    opcodes->remove(op);
 			    i--;
 			    done = true;
 			}
 		    }
 		    else if (op->opcode() == o->opcode() && op->opcode() != OpcLNot) {
 			// minus or bit negation applied twice - remove both operators
-			m_opcodes.remove(o);
-			m_opcodes.remove(op);
+			opcodes->remove(o);
+			opcodes->remove(op);
 			i--;
 			done = true;
 		    }
@@ -808,7 +816,7 @@ bool ExpEvaluator::trySimplify()
 		break;
 	}
     }
-    m_lastOpcode = m_opcodes.last();
+    m_lastOpcode = opcodes->last();
     return done;
 }
 
@@ -1337,7 +1345,7 @@ bool ExpEvaluator::runOperation(ObjList& stack, const ExpOperation& oper, GenObj
 
 bool ExpEvaluator::runFunction(ObjList& stack, const ExpOperation& oper, GenObject* context) const
 {
-    DDebug(this,DebugAll,"runFunction(%p,'%s' "FMT64", %p) ext=%p",
+    DDebug(this,DebugAll,"runFunction(%p,'%s' " FMT64 ", %p) ext=%p",
 	&stack,oper.name().c_str(),oper.number(),context,(void*)m_extender);
     if (oper.name() == YSTRING("chr")) {
 	String res;
@@ -1537,21 +1545,21 @@ void ExpEvaluator::dump(String& res, bool lineNo) const
     return dump(m_opcodes,res,lineNo);
 }
 
-int64_t ExpOperation::valInteger() const
+int64_t ExpOperation::valInteger(int64_t defVal) const
 {
-    return isInteger() ? number() : 0;
+    return isInteger() ? number() : defVal;
 }
 
-int64_t  ExpOperation::toNumber() const
+int64_t ExpOperation::toNumber() const
 {
     if (isInteger())
 	return number();
     return toInt64(nonInteger());
 }
 
-bool ExpOperation::valBoolean() const
+bool ExpOperation::valBoolean(bool defVal) const
 {
-    return isInteger() ? (number() != 0) : !null();
+    return isInteger() ? (number() != 0) : (defVal || !null());
 }
 
 const char* ExpOperation::typeOf() const
@@ -1620,10 +1628,10 @@ const char* ExpWrapper::typeOf() const
     }
 }
 
-bool ExpWrapper::valBoolean() const
+bool ExpWrapper::valBoolean(bool defVal) const
 {
     if (!m_object)
-	return false;
+	return defVal;
     return !JsParser::isNull(*this);
 }
 

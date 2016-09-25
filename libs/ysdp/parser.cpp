@@ -20,7 +20,6 @@
  */
 
 #include <yatesdp.h>
-#include <yateice.h>
 
 namespace TelEngine {
 
@@ -166,7 +165,6 @@ ObjList* SDPParser::parse(const MimeSdpBody& sdp, String& addr, ObjList* oldMedi
 	ObjList fmtps;
 	ObjList params;
 	ObjList* dest = &params;
-	IceRtpCandidates* cands = m_ice ? new IceRtpCandidates : NULL;
 	bool first = true;
 	int ptime = 0;
 	int rfc2833 = -1;
@@ -197,6 +195,16 @@ ObjList* SDPParser::parse(const MimeSdpBody& sdp, String& addr, ObjList* oldMedi
 		const NamedString* s = static_cast<NamedString*>(l->get());
 		if (s->name() == "m")
 		    break;
+		if (s->name() == "b") {
+		    if (first) {
+			int pos = s->find(':');
+			if (pos >= 0)
+			    dest = dest->append(new NamedString("BW-" + s->substr(0,pos),s->substr(pos+1)));
+			else
+			    dest = dest->append(new NamedString("BW-" + *s));
+		    }
+		    continue;
+		}
 		if (s->name() != "a")
 		    continue;
 		String line(*s);
@@ -240,25 +248,6 @@ ObjList* SDPParser::parse(const MimeSdpBody& sdp, String& addr, ObjList* oldMedi
 			    amrOctet = (0 != line.toInteger(0));
 			else if(payload.length())
 			    fmtps.append(new NamedString(payload, line));
-		    }
-		}
-		else if (cands && line.startSkip("candidate:", false)) {
-		    IceRtpCandidate* c = new IceRtpCandidate("ICE_RTP_candidate_" + String((int)Random::random()));
-		    c->fromSDPAttribute(line, *cands);
-		    cands->append(c);
-		    if (addr.null() && c->m_component == YSTRING("1")) { // Workaround firefox bug 784476 (0.0.0.0 address in c= line)
-			Debug(this,DebugWarn,"Replacing bad media '%s' address with ice candidate address '%s:%s'",type.c_str(),c->m_address.c_str(),c->m_port.c_str());
-			addr = c->m_address;
-			port = c->m_port.toLong();
-		    }
-		}
-		else if (cands && line.startSkip("ice-", false)) {
-		    if (line.startSkip("ufrag:", false))
-			cands->m_ufrag = line;
-		    else if (line.startSkip("pwd:", false))
-			cands->m_password = line;
-		    else {
-			Debug(this,DebugInfo,"Unknown ICE attribute '%s' for media '%s'", line.c_str(),type.c_str());
 		    }
 		}
 		else if (first) {
@@ -338,7 +327,6 @@ ObjList* SDPParser::parse(const MimeSdpBody& sdp, String& addr, ObjList* oldMedi
 	net->mappings(mappings);
 	net->rfc2833(rfc2833);
 	net->crypto(crypto,true);
-	net->ice(cands, true);
 	if (!lst)
 	    lst = new ObjList;
 	lst->append(net);
@@ -381,7 +369,6 @@ void SDPParser::initialize(const NamedList* codecs, const NamedList* hacks, cons
     m_rfc2833 = 101;
     m_secure = false;
     m_sdpForward = false;
-    m_ice = false;
     if (general) {
 	if (general->getBoolValue("rfc2833",true)) {
 	    m_rfc2833 = general->getIntValue("rfc2833",m_rfc2833);
@@ -392,7 +379,6 @@ void SDPParser::initialize(const NamedList* codecs, const NamedList* hacks, cons
 	    m_rfc2833 = -1;
 	m_secure = general->getBoolValue("secure",m_secure);
 	m_sdpForward = general->getBoolValue("forward_sdp",m_sdpForward);
-	m_ice = general->getBoolValue("ice",m_ice);
     }
 }
 

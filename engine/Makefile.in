@@ -9,6 +9,7 @@ CXX := @CXX@ -Wall
 OBJCXX := @CXX@ -Wall
 SED := sed
 DEFS :=
+LIBENG:=
 LIBAUX:= @DLOPEN_LIB@ @LIBS@
 LIBTHR:= @THREAD_LIB@
 INCLUDES := -I.. -I@top_srcdir@
@@ -29,7 +30,8 @@ LIBS :=
 CLSOBJS := TelEngine.o ObjList.o HashList.o Mutex.o Thread.o Socket.o Resolver.o \
 	String.o DataBlock.o NamedList.o \
 	URI.o Mime.o Array.o Iterator.o XML.o \
-	Hasher.o YMD5.o YSHA1.o YSHA256.o Base64.o Cipher.o Compressor.o
+	Hasher.o YMD5.o YSHA1.o YSHA256.o Base64.o Cipher.o Compressor.o \
+	Math.o
 ENGOBJS := Configuration.o Message.o Engine.o Plugin.o
 TELOBJS := DataFormat.o Channel.o
 CLIOBJS := Client.o ClientLogic.o
@@ -137,4 +139,4 @@ Makefile: @srcdir@/Makefile.in $(MKDEPS)
 	cd .. && ./config.status
 
 ../$(YLIB): $(LIBOBJS) $(LIBS)
-	$(LINK) -o $@ $(SONAME_OPT)$(YLIB) $^ $(LIBTHR) $(LIBAUX) $(MACOSX_LIB) @RESOLV_LIB@
+	$(LINK) -o $@ $(SONAME_OPT)$(YLIB) $^ $(LIBTHR) $(LIBAUX) $(LIBENG) $(MACOSX_LIB) @RESOLV_LIB@

@@ -52,7 +52,7 @@ bool ScriptParser::parseFile(const char* name, bool fragment)
     if (!f.openPath(name))
 	return false;
     int64_t len = f.length();
-    if (len <= 0 || len > 262143)
+    if (len <= 0 || len > (int64_t)m_maxFileLen)
 	return false;
     DataBlock data(0,(unsigned int)len+1);
     char* text = (char*)data.data();
@@ -103,6 +103,8 @@ void* ScriptContext::getObject(const String& name) const
 	return const_cast<ScriptContext*>(this);
     if (name == YATOM("ExpExtender"))
 	return const_cast<ExpExtender*>(static_cast<const ExpExtender*>(this));
+    if (name == YATOM("NamedList"))
+	return const_cast<NamedList*>(&m_params);
     return RefObject::getObject(name);
 }
 

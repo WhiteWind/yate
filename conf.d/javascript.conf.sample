@@ -14,6 +14,10 @@
 ; Example: routing=route.js
 ;routing=
 
+; max_length: integer: Maximum length of a single file
+; Valid range 32768 to 2097152 (32KB to 2MB)
+;max_length=500000
+
 ; allow_abort: boolean: Allow messages on level DebugFail to cause an engine abort
 ; Never enable it in production!
 ;allow_abort=no
@@ -43,3 +47,10 @@
 
 ; The Eliza chat bot, enabled by default for your enjoyment in rmanager
 eliza=eliza.js
+
+
+[late_scripts]
+; Add one entry in this section for each script that is to be loaded after Yate startup
+; These scripts are loaded only after the engine and modules have initialized, immediately
+;  after the dispatching of the "engine.start" message.
+; The names must be unique and different from any in the [scripts] section.

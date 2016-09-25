@@ -1141,9 +1141,10 @@ public:
 
     /**
      * Retrieve the numeric value of the operation
-     * @return Number contained in operation, zero if not a number
+     * @param defVal Default to return if not a number
+     * @return Number contained in operation
      */
-    virtual int64_t valInteger() const;
+    virtual int64_t valInteger(int64_t defVal = 0) const;
 
     /**
      * Convert to number
@@ -1153,9 +1154,10 @@ public:
 
     /**
      * Retrieve the boolean value of the operation
+     * @param defVal Default to return if not a boolean
      * @return True if the operation is to be interpreted as true value
      */
-    virtual bool valBoolean() const;
+    virtual bool valBoolean(bool defVal = false) const;
 
     /**
      * Retrieve the name of the type of the value of this operation
@@ -1214,9 +1216,10 @@ public:
 
     /**
      * Retrieve the boolean value of the function (not of its result)
+     * @param defVal Parameter ignored
      * @return Always true
      */
-    virtual bool valBoolean() const
+    virtual bool valBoolean(bool defVal = false) const
 	{ return true; }
 
     /**
@@ -1271,9 +1274,10 @@ public:
 
     /**
      * Retrieve the boolean value of the operation
+     * @param defVal Parameter ignored
      * @return True if the wrapped object is to be interpreted as true value
      */
-    virtual bool valBoolean() const;
+    virtual bool valBoolean(bool defVal = false) const;
 
     /**
      * Retrieve the name of the type of the value of this operation
@@ -1831,6 +1835,20 @@ public:
 	{ return m_code; }
 
     /**
+     * Set the maximum loaded file length
+     * @param len New maximum file length
+     */
+    inline void setMaxFileLen(unsigned int len)
+	{ m_maxFileLen = len; }
+
+    /**
+     * Retrieve the maximum loadable file size
+     * @return The maximum number of octets that will be loaded from a file
+     */
+    inline unsigned int maxFileLen() const
+	{ return m_maxFileLen; }
+
+    /**
      * Create a context adequate for the parsed code
      * @return A new script context
      */
@@ -1866,7 +1884,7 @@ protected:
      * Default constructor for derived classes
      */
     inline ScriptParser()
-	: m_code(0)
+	: m_code(0), m_maxFileLen(500000)
 	{ }
 
     /**
@@ -1877,6 +1895,7 @@ protected:
 
 private:
     ScriptCode* m_code;
+    unsigned int m_maxFileLen;
 };
 
 class JsFunction;
@@ -2193,18 +2212,11 @@ public:
 	{ return &m_func; }
 
     /**
-     * Retrieve the first name assigned to this function
-     * @return The name of the property towhich this function was first assigned
-     */
-    inline const String& firstName() const
-	{ return m_name; }
-
-    /**
      * Set the name of this function if still empty
      * @param name Name to set as first assigned name
      */
     inline void firstName(const char* name)
-	{ if (m_name.null()) m_name = name; }
+	{ if (m_func.name().null()) const_cast<String&>(m_func.name()) = name; }
 
     /**
      * Retrieve the name of the N-th formal argument
@@ -2226,7 +2238,16 @@ public:
      * @param mtx Pointer to the mutex that serializes the copied array
      * @return New object instance, does not keep references to old array
      */
-    virtual JsObject* copy(Mutex* mtx) const;
+    inline JsObject* copy(Mutex* mtx) const
+	{ return copy(mtx,0); }
+
+    /**
+     * Deep copy method with given name
+     * @param mtx Pointer to the mutex that serializes the copied array
+     * @param name Name for the copied function
+     * @return New object instance, does not keep references to old array
+     */
+    virtual JsObject* copy(Mutex* mtx, const char* name) const;
 
 protected:
     /**
@@ -2245,7 +2266,6 @@ private:
     long int m_label;
     ScriptCode* m_code;
     ExpFunction m_func;
-    String m_name;
 };
 
 /**
@@ -2419,6 +2439,15 @@ public:
 	{ return m_regexp; }
 
     /**
+     * Try to assign a value to a single field
+     * @param stack Evaluation stack in use
+     * @param oper Field to assign to, contains the field name and new value
+     * @param context Pointer to arbitrary object passed from evaluation methods
+     * @return True if assignment succeeded
+     */
+    virtual bool runAssign(ObjList& stack, const ExpOperation& oper, GenObject* context);
+
+    /**
      * RegExp object constructor, it's run on the prototype
      * @param stack Evaluation stack in use
      * @param oper Constructor function to evaluate
@@ -2589,9 +2618,11 @@ public:
      * Parse a complete block of JSON text
      * @param text JSON text to parse
      * @param mtx Pointer to the mutex that serializes this object
+     * @param stack Pointer to an execution stack, required for adding prototypes
+     * @param context Pointer to an execution context, required for adding prototypes
      * @return ExpOperation holding the content of JSON, must be dereferenced after use, NULL if parse error
      */
-    static ExpOperation* parseJSON(const char* text, Mutex* mtx = 0);
+    static ExpOperation* parseJSON(const char* text, Mutex* mtx = 0, ObjList* stack = 0, GenObject* context = 0);
 
     /**
      * Get a "null" object wrapper that will identity match another "null"

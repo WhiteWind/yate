@@ -2919,7 +2919,8 @@ public:
      * Makes sure the regular expression is compiled
      * @return True if successfully compiled, false on error
      */
-    bool compile() const;
+    inline bool compile() const
+	{ return m_regexp || (m_compile && doCompile()); }
 
     /**
      * Checks if the pattern matches a given value
@@ -2961,10 +2962,17 @@ protected:
      */
     virtual void changed();
 
+    /**
+     * Compile the regular expression
+     * @return True if successfully compiled, false on error
+     */
+    bool doCompile() const;
+
 private:
     void cleanup();
     bool matches(const char* value, StringMatchPrivate* matchlist) const;
     mutable void* m_regexp;
+    mutable bool m_compile;
     int m_flags;
 };
 
@@ -3751,21 +3759,31 @@ public:
 
     /**
      * Constructs an empty data block
+     * @param overAlloc How many bytes of memory to overallocate
      */
-    DataBlock();
+    DataBlock(unsigned int overAlloc = 0);
 
     /**
      * Copy constructor
+     * @param value Data block to copy from
      */
     DataBlock(const DataBlock& value);
+
+    /**
+     * Copy constructor with overallocation
+     * @param value Data block to copy from
+     * @param overAlloc How many bytes of memory to overallocate
+     */
+    DataBlock(const DataBlock& value, unsigned int overAlloc);
 
     /**
      * Constructs an initialized data block
      * @param value Data to assign, may be NULL to fill with zeros
      * @param len Length of data, may be zero (then value is ignored)
      * @param copyData True to make a copy of the data, false to just insert the pointer
+     * @param overAlloc How many bytes of memory to overallocate
      */
-    DataBlock(void* value, unsigned int len, bool copyData = true);
+    DataBlock(void* value, unsigned int len, bool copyData = true, unsigned int overAlloc = 0);
 
     /**
      * Destroys the data, disposes the memory.
@@ -3824,6 +3842,20 @@ public:
 	{ return m_length; }
 
     /**
+     * Get the memory overallocation setting.
+     * @return Amount of memory that will be overallocated.
+     */
+    inline unsigned int overAlloc() const
+	{ return m_overAlloc; }
+
+    /**
+     * Set the memory overallocation.
+     * @param bytes How many bytes of memory to overallocate
+     */
+    inline void overAlloc(unsigned int bytes)
+	{ m_overAlloc = bytes; }
+
+    /**
      * Clear the data and optionally free the memory
      * @param deleteData True to free the deta block, false to just forget it
      */
@@ -3834,8 +3866,9 @@ public:
      * @param value Data to assign, may be NULL to fill with zeros
      * @param len Length of data, may be zero (then value is ignored)
      * @param copyData True to make a copy of the data, false to just insert the pointer
+     * @param allocated Real allocated data length in case it should not be copied
      */
-    DataBlock& assign(void* value, unsigned int len, bool copyData = true);
+    DataBlock& assign(void* value, unsigned int len, bool copyData = true, unsigned int allocated = 0);
 
     /**
      * Append data to the current block
@@ -3971,8 +4004,11 @@ public:
     String sqlEscape(char extraEsc) const;
 
 private:
+    unsigned int allocLen(unsigned int len) const;
     void* m_data;
     unsigned int m_length;
+    unsigned int m_allocated;
+    unsigned int m_overAlloc;
 };
 
 /**
@@ -6708,9 +6744,10 @@ public:
      * Create a folder (directory). It only creates the last directory in the path
      * @param path The folder path
      * @param error Optional pointer to error code to be filled on failure
+     * @param mode Optional file mode, ignored on some platforms
      * @return True on success
      */
-    static bool mkDir(const char* path, int* error = 0);
+    static bool mkDir(const char* path, int* error = 0, int mode = -1);
 
     /**
      * Remove an empty folder (directory)
@@ -6965,6 +7002,12 @@ public:
      */
     inline bool setTOS(const char* tos, int defTos = Normal)
 	{ return setTOS(lookup(tos,tosValues(),defTos)); }
+
+    /**
+     * Retrieve the TOS / DSCP on the IP level of this socket
+     * @return TOS or DiffServ value, Normal if not supported or an error occured
+     */
+    virtual int getTOS();
 
     /**
      * Set the blocking or non-blocking operation mode of the socket

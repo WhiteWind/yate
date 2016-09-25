@@ -5,6 +5,7 @@
 # to create a debug info package run rpmbuild --define 'debuginfo 1'
 # to suppress auto dependencies run rpmbuild --define 'nodeps 1'
 # to disable all PSTN card drivers run rpmbuild --define 'nopstn 1'
+# to disable USB support run rpmbuild --define 'nousb 1'
 # to disable SCTP support run rpmbuild --define 'nosctp 1'
 # to disable H.323 support run rpmbuild --define 'noh323 1'
 # to disable the GUI clients run rpmbuild --define 'nogui 1'
@@ -14,9 +15,11 @@
 %{!?systemd:%define systemd %(test -x /usr/bin/systemd && echo 1 || echo 0)}
 %{!?_unitdir:%define _unitdir /usr/lib/systemd/system}
 %{!?dist:%define dist %{nil}}
+%{!?status:%define status @PACKAGE_STATUS@}
 %{!?revision:%define revision %{nil}}
 %{?nodeps:%define no_auto_deps 1}
 %{?nopstn:%define no_pstn 1}
+%{?nousb:%define no_usb 1}
 %{?nosctp:%define no_sctp 1}
 %{?noh323:%define no_h323 1}
 %{?nogui:%define no_gui 1}
@@ -63,13 +66,15 @@
 Summary:	Yet Another Telephony Engine
 Name:     	@PACKAGE_TARNAME@
 Version: 	@PACKAGE_VERSION@
-Release:	@PACKAGE_STATUS@%{revision}@PACKAGE_RELEASE@%{dist}
+Release:	%{status}%{revision}@PACKAGE_RELEASE@%{dist}
 License:	GPL
 Packager:	Paul Chitescu <paulc@voip.null.ro>
 Source:		http://yate.null.ro/tarballs/@PACKAGE_TARNAME@@PACKAGE_VERSION_MAJOR@/@PACKAGE_TARNAME@-@PACKAGE_VERSION@-@PACKAGE_STATUS@@PACKAGE_RELEASE@.tar.gz
 Group:		Applications/Communications
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root
 URL:		http://yate.null.ro/
+%{?extra_prov:Provides: %{?extra_prov}}
+%{?extra_reqs:Requires: %{?extra_reqs}}
 BuildRequires:	gcc-c++
 # Distro maintainers please add other BuildRequires below this line
 
@@ -105,7 +110,8 @@ for small to large scale projects.
 %{_initrddir}/yate
 %endif
 %dir %{_datadir}/yate/data
-%{_datadir}/yate/data/*
+%{_datadir}/yate/data/*MIB.txt
+%{_datadir}/yate/data/snmp_mib.conf
 %dir %{_libdir}/yate
 %{_libdir}/yate/cdrbuild.yate
 %{_libdir}/yate/cdrcombine.yate
@@ -179,6 +185,7 @@ for small to large scale projects.
 %{_libdir}/yate/sig/ss7_lnp_ansi.yate
 %{_libdir}/yate/sig/camel_map.yate
 %{_libdir}/yate/sip/sip_cnam_lnp.yate
+%{_libdir}/yate/radio/dummyradio.yate
 %dir %{_sysconfdir}/yate
 %config(noreplace) %{_sysconfdir}/yate/accfile.conf
 %config(noreplace) %{_sysconfdir}/yate/cdrbuild.conf
@@ -237,6 +244,7 @@ for small to large scale projects.
 %config(noreplace) %{_sysconfdir}/yate/ss7_lnp_ansi.conf
 %config(noreplace) %{_sysconfdir}/yate/camel_map.conf
 %config(noreplace) %{_sysconfdir}/yate/sip_cnam_lnp.conf
+%config(noreplace) %{_sysconfdir}/yate/dummyradio.conf
 
 %config %{_sysconfdir}/logrotate.d/yate
 
@@ -492,6 +500,31 @@ test -x /usr/bin/update-menus && /usr/bin/update-menus || /bin/true
 %postun qt4
 test -x /usr/bin/update-menus && /usr/bin/update-menus || /bin/true
 
+%define conf_gui %{nil}
+%else
+%define conf_gui --without-libqt4
+%endif
+
+
+%if "%{no_usb}" != "1"
+
+%package bladerf
+Summary:	Yate radio interface for the bladeRF board
+Group:		Applications/Communication
+Requires:	%{name} = %{version}-%{release}
+Provides:	%{name}-radio
+
+%description bladerf
+This package provides support for bladeRF radio boards http://nuand.com/
+
+%files bladerf
+%{_libdir}/yate/radio/ybladerf.yate
+%{_datadir}/yate/data/hosted*.rbf
+%config(noreplace) %{_sysconfdir}/yate/ybladerf.conf
+
+%define conf_usb %{nil}
+%else
+%define conf_usb --without-libusb
 %endif
 
 
@@ -587,13 +620,20 @@ The devel package must still be installed separately.
 %prep
 %setup -q -n %{name}
 
+# older rpmbuild uses these macro basic regexps
+%define _provides_exceptions pear(libyate\\|devel(libyate
+%define _requires_exceptions pear(libyate\\|devel(libyate\\|devel(libQt
+# newer rpmbuild needs these global extended regexps
+%global __provides_exclude pear\\(libyate|devel\\(libyate
+%global __requires_exclude pear\\(libyate|devel\\(libyate|devel\\(libQt
+#
 %if "%{no_auto_deps}" == "1"
 %define local_find_requires %{_builddir}/%{name}/local-find-requires
 %define local_find_provides %{_builddir}/%{name}/local-find-provides
 #
 %{__cat} <<EOF >%{local_find_requires}
 #! /bin/sh
-grep -v '\.yate$' | %{__find_requires} | grep -v '^perl'
+grep -v '\.yate$' | %{__find_requires} | grep -v '^perl' | grep -v 'libyate\.php'
 exit 0
 EOF
 #
@@ -616,12 +656,14 @@ chmod +x %{local_find_requires} %{local_find_provides}
 	--libdir=%{_libdir} --mandir=%{_mandir} --with-archlib=%{_lib} \
 	--without-amrnb \
 	--without-spandsp --without-coredumper \
-	%{conf_sctp} %{conf_h323} %{conf_pstn}
-make %{stripped}
+	%{conf_sctp} %{conf_h323} %{conf_pstn} %{conf_usb} %{conf_gui} %{?extra_conf}
+make %{stripped} %{?extra_make}
+%{?extra_step}
 
 %install
-make install DESTDIR=%{buildroot}
+make install DESTDIR=%{buildroot} %{?extra_make}
 rm %{buildroot}%{_sysconfdir}/yate/amrnbcodec.conf
+rm %{buildroot}%{_sysconfdir}/yate/radiotest.conf
 %if "%{systemd}" != "0"
 mkdir -p %{buildroot}%{_unitdir}
 cp -p %{_builddir}/%{name}/packing/rpm/yate.service %{buildroot}%{_unitdir}/yate.service
@@ -631,6 +673,10 @@ cp -p %{_builddir}/%{name}/packing/rpm/yate.init %{buildroot}%{_initrddir}/yate
 %endif
 mkdir -p %{buildroot}%{_sysconfdir}/logrotate.d
 cp -p %{_builddir}/%{name}/packing/yate.logrotate %{buildroot}%{_sysconfdir}/logrotate.d/yate
+%if "%{?extra_inst}"
+export DESTDIR=%{buildroot}
+%{?extra_inst}
+%endif
 
 %clean
 # make clean
@@ -638,6 +684,9 @@ rm -rf %{buildroot}
 
 
 %changelog
+* Thu Nov 26 2015 Paul Chitescu <paulc@voip.null.ro>
+- More tweaking to suppress unwanted dependencies in newer RPM
+
 * Tue Apr 07 2015 Marian Podgoreanu <marian@voip.null.ro>
 - Renamed GSM Layer 3 radio library
 
